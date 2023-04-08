@@ -1,13 +1,77 @@
+use std::str::FromStr;
+
 use actix_web::{web, HttpResponse, Responder};
+use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId}, Collection, options::FindOneOptions};
+use serde::Deserialize;
+use serde_json::json;
+
+use crate::types::User;
 
 
-async fn create_user()->impl Responder {
-    HttpResponse::Ok()
+#[derive(Deserialize)]
+struct CreateUserRequest {
+    name: String,
+    password: String,
+    email: String,
+    forgot_mail: Option<String>,
 }
 
-async fn fetch_user()->impl Responder {
-    HttpResponse::Ok()
+
+async fn create_user(user: web::Json<CreateUserRequest>, db: web::Data<Database>)->impl Responder {
+    let new_user = User::new(
+        user.name.clone(),
+        user.password.clone(),
+        user.email.clone(),
+        user.forgot_mail.clone(),
+    );
+
+    //let user = User::new("John Doe".to_string(), "password123".to_string(), "john.doe@example.com".to_string(), Some("john.doe@example.com".to_string()));
+    
+    let user_doc = bson::to_document(&new_user).unwrap();
+    let result = db.collection("users").insert_one(user_doc, None).await;
+
+    match result {
+        Ok(_) => HttpResponse::Ok().body("User created successfully"),
+        Err(e) => HttpResponse::InternalServerError().body(format!("Error creating user: {}", e))
+    }
 }
+async fn fetch_user_by_id(user_id: web::Path<String>, db: web::Data<Database>) -> impl Responder {
+
+    let collection = db.collection("users");
+
+    fn is_valid_objectid(id: &str) -> bool {
+        if let Ok(_) = ObjectId::from_str(id) {
+            true
+        } else {
+            false
+        }
+    }
+
+    if !is_valid_objectid(&user_id) {
+        return HttpResponse::BadRequest().json(json!({"error":"Invalid user ID"}));
+    }
+
+
+    let id = ObjectId::from_str(&user_id).unwrap();    
+    match collection.find_one(doc! {"_id": id}, None).await {
+        Ok(result) => {
+            if let Some(doc) = result {
+                // Deserialize the user document to a User struct
+                let user: User = from_document(doc).unwrap();
+                // Return the user as a JSON response
+                HttpResponse::Ok().json(user)
+            } else {
+                // Return a 404 Not Found error as a JSON response
+                HttpResponse::NotFound().json(json!({"error":"user not found"}))
+            }
+        }
+        Err(error) => {
+            // Return an error message as a JSON response
+            HttpResponse::InternalServerError().json(format!("Failed to fetch user: {}", error))
+        }
+    }
+}
+
 
 pub fn user_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -16,6 +80,6 @@ pub fn user_routes(cfg: &mut web::ServiceConfig) {
     )
     .service(
         web::resource("/user/fetch/{id}")
-            .route(web::get().to(fetch_user))
+            .route(web::get().to(fetch_user_by_id))
     );
 }

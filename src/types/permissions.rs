@@ -1,6 +1,9 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Permission{
-    banned,
-    guest,
-    author,
-    admin
+    Banned,
+    Guest,
+    Author,
+    Admin
 }
