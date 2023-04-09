@@ -8,6 +8,8 @@ use chrono::{DateTime, Utc};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct User{ 
+    #[serde(rename = "_id", default)]
+    pub id: ObjectId,
     pub name: String,
     pub password: String,
     pub email: String,
@@ -37,6 +39,7 @@ impl User {
     pub fn new(name: String, password: String, email: String, forgot_mail: Option<String>) -> Self {
         let now = Utc::now();
         User {
+            id: ObjectId::new(),
             name,
             password,
             email,
