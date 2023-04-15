@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use actix_web::{web::{self, Data}, App, HttpResponse, HttpServer, Responder, dev::WebService, HttpRequest};
-use mongodb::{bson::{doc, Document, oid::ObjectId, from_document}, options::ClientOptions, Client, error::Error as MongoError, Database};
+use mongodb::{Client, Database};
 use serde::{Deserialize, Serialize};
 mod types;
 mod routes;
@@ -14,10 +14,7 @@ use actix_web::{dev::ServiceRequest, dev::ServiceResponse, Error};
 use futures_util::future::{Future, Ready};
 
 
-
 #[actix_web::main]
-
-
 async fn main() -> std::io::Result<()> {
     let client = Client::with_uri_str("mongodb://localhost:27017").await.unwrap();
     let db: Database = client.database("mydb");

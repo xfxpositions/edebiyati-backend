@@ -16,6 +16,7 @@ jsonwebtoken = "8.3.0"
 
 mongodb = "2.4.0"
 ring = "0.16.20"
+scraper = "0.16.0"
 serde = {version="1.0.159", features=["derive"]}
 serde_json = "1.0.95"
 sha256 = "1.1.2"

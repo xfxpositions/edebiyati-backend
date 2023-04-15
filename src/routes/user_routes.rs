@@ -37,7 +37,7 @@ async fn create_user(user: web::Json<CreateUserRequest>, db: web::Data<Database>
     let result = db.collection("users").insert_one(user_doc, None).await;
 
     match result {
-        Ok(_) => HttpResponse::Ok().body("User created successfully"),
+        Ok(user) => HttpResponse::Ok().json(json!({"user":user})),
         Err(e) => HttpResponse::InternalServerError().body(format!("Error creating user: {}", e))
     }
 }
@@ -133,6 +133,9 @@ async fn login(request_user: web::Json<LoginRequest>, db: web::Data<Database>) -
         }
     }
 }
+fn jwt_middleware(){
+
+}
 
 
 
@@ -140,6 +143,7 @@ async fn login(request_user: web::Json<LoginRequest>, db: web::Data<Database>) -
 
 
 pub fn user_routes(cfg: &mut web::ServiceConfig) {
+    
     cfg.service(
         web::resource("/user/create")
             .route(web::post().to(create_user))
