@@ -30,9 +30,6 @@ async fn create_user(user: web::Json<CreateUserRequest>, db: web::Data<Database>
         user.forgot_mail.clone(),
     );
 
-    
-
-    
     let user_doc = bson::to_document(&new_user).unwrap();
     let result = db.collection("users").insert_one(user_doc, None).await;
 

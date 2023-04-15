@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use actix_web::{web::{self, Data}, App, HttpResponse, HttpServer, Responder, dev::WebService, HttpRequest};
-use mongodb::{Client, Database};
+use mongodb::{Client, Database, bson::{self, Document, to_document, doc}, Collection};
 use serde::{Deserialize, Serialize};
 mod types;
 mod routes;
@@ -18,6 +18,26 @@ use futures_util::future::{Future, Ready};
 async fn main() -> std::io::Result<()> {
     let client = Client::with_uri_str("mongodb://localhost:27017").await.unwrap();
     let db: Database = client.database("mydb");
+    let collection = db.collection::<Common>("common");
+
+    // Check if a document exists in the collection and create a new one if it doesn't
+    let coll: Collection<Document> = db.collection("common");
+
+    let count = coll.count_documents(doc! {}, None).await.unwrap();
+
+    if count == 0 {
+        let common = Common {
+            total_view: 0,
+            total_clicked: 0,
+            user_count: 0,
+            post_count: 0,
+            tag_count: 0
+        };
+
+        let doc = to_document(&common).unwrap();
+
+        let _ = coll.insert_one(doc, None).await;
+    }
     
     HttpServer::new(move || {
         App::new()
