@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use actix_web::{web::{self, Data}, App, HttpResponse, HttpServer, Responder, dev::WebService, HttpRequest};
+use actix_web::{web::{self, Data}, App, HttpResponse, HttpServer, Responder, dev::WebService, HttpRequest, http::header::{HeaderMap, HeaderValue}};
 use mongodb::{Client, Database, bson::{self, Document, to_document, doc}, Collection};
 use serde::{Deserialize, Serialize};
 mod types;
@@ -18,8 +18,6 @@ use futures_util::future::{Future, Ready};
 async fn main() -> std::io::Result<()> {
     let client = Client::with_uri_str("mongodb://localhost:27017").await.unwrap();
     let db: Database = client.database("mydb");
-    let collection = db.collection::<Common>("common");
-
     // Check if a document exists in the collection and create a new one if it doesn't
     let coll: Collection<Document> = db.collection("common");
 
@@ -33,18 +31,27 @@ async fn main() -> std::io::Result<()> {
             post_count: 0,
             tag_count: 0
         };
-
         let doc = to_document(&common).unwrap();
-
         let _ = coll.insert_one(doc, None).await;
     }
-    
+    fn jwt_middleware(headers:HeaderMap){
+        println!("hello from jwt_middleware");
+        for header in headers.iter(){
+            println!("Header: , {:?}", header);
+        }
+        // let auth_header = headers.get("authorization");
+        // println!("auth Header: , {:?}", auth_header);
+
+        
+    }
     HttpServer::new(move || {
+        println!("server listening in 8080");
         App::new()
              .wrap_fn(|req, srv| {
             println!("Hi from start. You requested: {}", req.path());
-            srv.call(req).map(|res| {
-                println!("Hi from response");
+            let headers = req.headers();
+            jwt_middleware(headers.clone());
+            srv.call(req).map(move |res: Result<ServiceResponse, Error>| {
                 res
             })
             })       
