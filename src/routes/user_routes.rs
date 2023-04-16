@@ -1,4 +1,4 @@
-use std::{str::FromStr, io::Write};
+use std::{str::FromStr, io::Write, collections::HashMap};
 
 use actix_web::{web::{self}, HttpResponse, Responder};
 use actix_multipart::Multipart;
@@ -207,6 +207,111 @@ async fn login(request_user: web::Json<LoginRequest>, db: web::Data<Database>) -
     }
 }
 
+async fn update_user(
+    user_id: web::Path<String>,
+    new_data: web::Json<HashMap<String, String>>,
+    db: web::Data<Database>
+) -> impl Responder {
+    let collection = db.collection::<User>("users");
+
+    fn is_valid_objectid(id: &str) -> bool {
+        if let Ok(_) = ObjectId::from_str(id) {
+            true
+        } else {
+            false
+        }
+    }
+
+    if !is_valid_objectid(&user_id) {
+        return HttpResponse::BadRequest().json(json!({"error":"Invalid user ID"}));
+    }
+
+    let id = ObjectId::from_str(&user_id).unwrap();
+
+    let mut update_fields = doc! {};
+
+    for (key, value) in new_data.iter() {
+        update_fields.insert(key, value);
+    }
+
+    let update_doc = doc! {"$set": update_fields};
+
+    let result = collection
+        .update_one(doc! {"_id": id}, update_doc, None)
+        .await;
+
+    match result {
+        Ok(user) => HttpResponse::Ok().json(json!({"user": user})),
+        Err(e) => HttpResponse::InternalServerError().body(format!("Error creating user: {}", e))
+    }
+}
+
+
+
+#[derive(Deserialize)]
+struct UpdatePasswordRequest {
+    old_password: String,
+    new_password: String,
+}
+
+async fn update_password(
+    user_id: web::Path<String>,
+    password_data: web::Json<UpdatePasswordRequest>,
+    db: web::Data<Database>
+) -> impl Responder {
+    let collection = db.collection::<User>("users");
+
+    fn is_valid_objectid(id: &str) -> bool {
+        if let Ok(_) = ObjectId::from_str(id) {
+            true
+        } else {
+            false
+        }
+    }
+
+    if !is_valid_objectid(&user_id) {
+        return HttpResponse::BadRequest().json(json!({"error": "Invalid user ID"}));
+    }
+
+    fn hash_password(password: String) -> String {
+        let hashed_password = digest(password);
+        hashed_password
+    }
+
+    let id = ObjectId::from_str(&user_id).unwrap();
+
+    match collection.find_one(doc! {"_id": id}, None).await {
+        Ok(result) => {
+            if let Some(user) = result {
+                if user.password == hash_password(password_data.old_password.clone()){
+                    let new_password_encrypted = hash_password(password_data.new_password.clone());
+                
+                    let update_doc = doc! {"$set": {"password" : new_password_encrypted }};
+                
+                    let result = collection
+                        .update_one(doc! {"_id": id}, update_doc, None)
+                        .await;
+        
+                    match result {
+                        Ok(user) => HttpResponse::Ok().json(json!({"success": "Password changed successfully"})),
+                        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("Error changing password: {}", e)}))
+                    }
+                } else {
+                    HttpResponse::Unauthorized().json(json!({"error": "Incorrect password"}))
+                }
+            
+            } else {
+                HttpResponse::NotFound().json(json!({"error": "User not found"}))
+            }
+        }
+        Err(error) => {
+            HttpResponse::InternalServerError().json(json!({"error": format!("Failed to fetch user: {}", error)}))
+        }
+    } 
+}
+
+
+
 pub fn user_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::resource("/user/create")
@@ -223,5 +328,13 @@ pub fn user_routes(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/user/changeavatar/{id}")
             .route(web::post().to(upload_avatar))
+    )
+    .service(
+        web::resource("/user/update/{id}")
+            .route(web::post().to(update_user))
+    )
+    .service(
+        web::resource("/user/updatepassword/{id}")
+            .route(web::post().to(update_password))
     );
 }

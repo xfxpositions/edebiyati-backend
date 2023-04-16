@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use actix_web::{web::{self, Data}, App, HttpResponse, HttpServer, Responder, dev::WebService, HttpRequest, http::header::{HeaderMap, HeaderValue}};
+use actix_web::{web::{self, Data}, App, HttpServer, http::header::{HeaderMap}};
 use mongodb::{Client, Database, bson::{self, Document, to_document, doc}, Collection};
 use serde::{Deserialize, Serialize};
 mod types;
