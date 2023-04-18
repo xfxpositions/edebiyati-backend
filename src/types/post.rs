@@ -13,12 +13,11 @@ use uuid::Uuid;
 pub struct Content{
     pub html:String,
     pub markdown:String,
-    pub id: String
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Comment{
-    author_name:String, //anon or user.id
+    author_id:String, //anon or user.id
     content:String, //max 250 characters
     id: String,
 }
@@ -28,7 +27,7 @@ impl Comment{
         let mut name = author_name.unwrap_or("anon".to_string()); 
         let id = Uuid::new_v4();
         Comment{
-            author_name: name,
+            author_id: name,
             content: content,
             id: id.to_string()
         }

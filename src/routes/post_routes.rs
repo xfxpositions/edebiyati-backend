@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sha256::digest;
 
-use crate::{types::Post, utils::upload_image_to_s3, types::Content, types::PostStatus, types::Tag, types::DEFAULT_POST_IMAGE};
+use crate::{types::Post, utils::upload_image_to_s3, types::Content, types::{PostStatus, Comment}, types::Tag, types::DEFAULT_POST_IMAGE};
 use crate::utils::sign_jwt;
 use crate::utils::calculate_reading_time;
 use futures::{StreamExt, TryStreamExt};
@@ -119,6 +119,44 @@ async fn update_post(
 }
 
 
+#[derive(Deserialize, Clone)]
+struct AddCommentRequest{
+    author_id: Option<String>,
+    content: String
+}
+async fn add_comment(Post_id: web::Path<String>, comment_data: web::Json<AddCommentRequest>, db: web::Data<Database>)-> impl Responder{
+
+    let collection = db.collection::<Post>("posts");
+    fn is_valid_objectid(id: &str) -> bool {
+        if let Ok(_) = ObjectId::from_str(id) {
+            true
+        } else {
+            false
+        }
+    }
+    if !is_valid_objectid(&Post_id) {
+        return HttpResponse::BadRequest().json(json!({"error":"Invalid Post ID"}));
+    }
+    if comment_data.content.clone().len() > 250 || comment_data.content.clone().len() <=1 {
+        return HttpResponse::BadRequest().json(json!({"error":"comment content must be between 250 and 1 characters"}));
+    }
+    let post_id = ObjectId::from_str(&Post_id).unwrap();    
+    let comment = Comment::new(comment_data.author_id.clone(), comment_data.content.clone());
+    let filter = doc! {"_id": post_id};
+    let doc = bson::to_document(&comment).unwrap();
+    let update = doc! {"$push": {"comments": doc}};
+    let result = collection.update_one(filter, update, None).await;
+    
+    match result{
+        Ok(_)=>{HttpResponse::Ok().json(json!({"success":"comment added!"}))},
+        Err(error) => {
+            // Return an error message as a JSON response
+            HttpResponse::InternalServerError().json(format!("Failed to fetch Post: {}", error))
+        }
+    }
+
+
+}
 
 pub fn post_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -132,5 +170,9 @@ pub fn post_routes(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/post/update/{id}")
             .route(web::post().to(update_post))
+    )
+    .service(
+        web::resource("/post/addcomment/{id}")
+            .route(web::post().to(add_comment))
     );
 }
