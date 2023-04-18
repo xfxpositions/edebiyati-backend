@@ -10,10 +10,10 @@ pub enum Permission{
 impl Permission{
     pub fn to_string(&self)->String{
         match self {
-            Self::Banned => "Banned".to_string(),
-            Self::Guest => "Guest".to_string(),
-            Self::Author => "Author".to_string(),
-            Self::Admin => "Admin".to_string(),
+            Self::Banned => "banned".to_string(),
+            Self::Guest => "guest".to_string(),
+            Self::Author => "author".to_string(),
+            Self::Admin => "admin".to_string(),
         }
     }
 }

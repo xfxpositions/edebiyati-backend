@@ -35,10 +35,10 @@ async fn main() -> std::io::Result<()> {
         let _ = coll.insert_one(doc, None).await;
     }
     fn jwt_middleware(headers:HeaderMap){
-        println!("hello from jwt_middleware");
-        for header in headers.iter(){
-            println!("Header: , {:?}", header);
-        }
+        //println!("hello from jwt_middleware");
+        // for header in headers.iter(){
+        //     println!("Header: , {:?}", header);
+        // }
         // let auth_header = headers.get("authorization");
         // println!("auth Header: , {:?}", auth_header);
 
