@@ -155,7 +155,6 @@ async fn add_comment(Post_id: web::Path<String>, comment_data: web::Json<AddComm
         }
     }
 
-
 }
 
 pub fn post_routes(cfg: &mut web::ServiceConfig) {
