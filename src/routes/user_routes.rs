@@ -1,6 +1,6 @@
 use std::{str::FromStr, io::Write, collections::HashMap};
 
-use actix_web::{web::{self}, HttpResponse, Responder};
+use actix_web::{web::{self}, HttpResponse, Responder, dev::{ServiceRequest, Service}, Resource};
 use actix_multipart::Multipart;
 
 use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId}, options::{FindOneAndUpdateOptions, ReturnDocument}, Collection};
@@ -10,8 +10,19 @@ use sha256::digest;
 
 use crate::{types::User, utils::upload_image_to_s3};
 use crate::utils::sign_jwt;
-use futures::{StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, FutureExt};
 use uuid::Uuid;
+async fn print_headers_middleware<AppState>(
+    req: ServiceRequest,
+    srv: &Resource<AppState>,
+) -> Result<ServiceRequest, actix_web::Error> {
+    // Print the request headers
+    println!("Headers: {:?}", req.headers());
+
+    // Pass the request to the next middleware or handler
+    Ok(req)
+}
+
 
 
 #[derive(Deserialize)]
@@ -315,10 +326,14 @@ async fn update_password(
 pub fn user_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::resource("/user/create")
+
+           
+
             .route(web::post().to(create_user))
     )
     .service(
         web::resource("/user/fetch/{id}")
+            
             .route(web::get().to(fetch_user_by_id))
     )
     .service(

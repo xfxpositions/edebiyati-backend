@@ -3,16 +3,17 @@ use std::{str::FromStr, io::Write, collections::HashMap};
 use actix_web::{web::{self}, HttpResponse, Responder};
 use actix_multipart::Multipart;
 
-use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId}, options::{FindOneAndUpdateOptions, ReturnDocument}, Collection};
+use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId}, options::{FindOneAndUpdateOptions, ReturnDocument, FindOptions}, Collection};
 use serde::Deserialize;
 use serde_json::json;
 use sha256::digest;
 
-use crate::{types::Post, utils::upload_image_to_s3, types::Content, types::{PostStatus, Comment}, types::Tag, types::DEFAULT_POST_IMAGE};
+use crate::{types::Post, utils::upload_image_to_s3, types::Content, types::{PostStatus, Comment}, types::Tag, types::{DEFAULT_POST_IMAGE, User}};
 use crate::utils::sign_jwt;
 use crate::utils::calculate_reading_time;
 use futures::{StreamExt, TryStreamExt};
 use uuid::Uuid;
+
 
 
 #[derive(Deserialize, Clone)]
@@ -27,6 +28,43 @@ struct CreatePostRequest {
 }
 
 async fn create_post( post_req: web::Json<CreatePostRequest>, db: web::Data<Database>)->impl Responder {
+    fn is_valid_objectid(id: &str) -> bool {
+        if let Ok(_) = ObjectId::from_str(id) {
+            true
+        } else {
+            false
+        }
+    }
+
+    if !is_valid_objectid(&post_req.author.clone()) {
+        return HttpResponse::BadRequest().json(json!({"error":"Invalid Post ID"}));
+    }
+
+    let user_collection = db.collection::<User>("users");
+
+    let user_id = ObjectId::from_str(&post_req.author.clone()).unwrap();    
+
+    let user_filter = doc! {"_id": user_id};
+    
+
+    let user = match user_collection.find_one(user_filter.clone(), None).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return HttpResponse::BadRequest().body(format!(
+                "Error creating post: user with id {} not found",
+                &post_req.author
+            ))
+        }
+        Err(e) => {
+            return HttpResponse::InternalServerError().body(format!(
+                "Error creating post: unable to query user: {}",
+                e
+            ))
+        }
+    };
+
+
+
     let mut post = post_req.clone();
     let image = post.image.take().unwrap_or(DEFAULT_POST_IMAGE.to_string());
     let content_html = &post.content.html;
@@ -37,7 +75,16 @@ async fn create_post( post_req: web::Json<CreatePostRequest>, db: web::Data<Data
     let result = db.collection("posts").insert_one(post_doc, None).await;
 
     match result {
-        Ok(post) => HttpResponse::Ok().json(json!({"Post":post})),
+        Ok(post) => {
+            let post_id_str = post.inserted_id.as_object_id().unwrap().to_hex();
+           
+            let user_update = doc! {"$push": {"posts": post_id_str}};
+            let update_result = user_collection.update_one(user_filter, user_update, None).await;
+            if let Err(e) = update_result {
+                return HttpResponse::BadRequest().body(format!("Error updating user: {}", e));
+            }
+            HttpResponse::Ok().json(json!({"Post": post}))
+        },
         Err(e) => HttpResponse::InternalServerError().body(format!("Error creating post: {}", e))
     }
 }
@@ -65,6 +112,7 @@ async fn fetch_post_by_id(Post_id: web::Path<String>, db: web::Data<Database>) -
                 // Deserialize the Post document to a Post struct
                 let Post: Post = from_document(doc).unwrap();
                 // Return the Post as a JSON response
+                
                 HttpResponse::Ok().json(Post)
             } else {
                 // Return a 404 Not Found error as a JSON response
@@ -78,6 +126,26 @@ async fn fetch_post_by_id(Post_id: web::Path<String>, db: web::Data<Database>) -
     }
 }
 
+async fn fetch_all(page: web::Path<i32>, db: web::Data<Database>) -> impl Responder {
+    // Define the number of documents to skip and the number of documents to return
+    let page_size = 5;
+
+    let collection = db.collection::<Post>("posts");
+    let allah = collection.find(doc! {}, None).await.unwrap();
+    let skip_size = (page.into_inner() - 1) * page_size;
+    let posts: Vec<Post> = allah
+        .skip((skip_size as u64).try_into().unwrap())
+        .take((page_size as u64).try_into().unwrap())
+        .filter_map(|result| async {
+            match result {
+                Ok(post) => Some(post),
+                Err(_) => None,
+            }
+        })
+        .collect().await;
+
+    HttpResponse::Ok().json(posts)
+}
 
 async fn update_post(
     Post_id: web::Path<String>,
@@ -173,5 +241,9 @@ pub fn post_routes(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/post/addcomment/{id}")
             .route(web::post().to(add_comment))
+    )
+    .service(
+        web::resource("/post/fetchall/{page}")
+            .route(web::get().to(fetch_all))
     );
 }

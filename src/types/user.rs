@@ -15,7 +15,7 @@ pub struct User{
     pub email: String,
     pub forgot_mail: Option<String>,
     pub permission: Permission,
-    pub posts: Vec<Post>,
+    pub posts: Vec<String>, // list of post id's Vec<user.id> 
     #[serde(with = "chrono::serde::ts_seconds")]
     pub created_at: DateTime<Utc>,
     #[serde(with = "chrono::serde::ts_seconds")]
