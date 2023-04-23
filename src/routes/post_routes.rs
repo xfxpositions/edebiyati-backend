@@ -6,6 +6,7 @@ use actix_multipart::Multipart;
 use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId, Regex}, options::{FindOneAndUpdateOptions, ReturnDocument, FindOptions}, Collection};
 use serde::Deserialize;
 use serde_json::json;
+use uuid::Uuid;
 
 use crate::{types::Post, utils::upload_image_to_s3, types::Content, types::{PostStatus, Comment}, types::Tag, types::{DEFAULT_POST_IMAGE, User}};
 
@@ -13,6 +14,45 @@ use crate::utils::calculate_reading_time;
 use futures::{StreamExt, TryStreamExt};
 
 
+
+
+
+async fn upload_image(mut payload: Multipart) -> impl Responder {
+
+    // Read the image data from the multipart payload
+    if let Some(mut field) = payload.try_next().await.unwrap() {
+        let content_type = field.content_type();
+        if let Some(mime) = content_type {
+            if mime.type_() == mime::IMAGE {
+                let mut file_bytes = Vec::new();
+                while let Some(chunk) = field.next().await {
+                    let data = chunk.unwrap();
+                    file_bytes.write_all(&data).unwrap();
+                }
+
+                // Upload the image to S3
+                let uuid = Uuid::new_v4();
+                let key = format!("{}.png",uuid.to_string()); 
+                match upload_image_to_s3(&key, &file_bytes).await {
+                    Ok(url) => {
+                        let image_url = url;
+                        HttpResponse::Ok().json(json!({
+                            "message":"Image uploaded successfuly",
+                            "url":image_url
+                        }))
+                    },
+                    Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+                }
+            } else {
+                HttpResponse::UnsupportedMediaType().body("Only image files are supported")
+            }
+        } else {
+            HttpResponse::UnsupportedMediaType().body("Invalid content type")
+        }
+    } else {
+        HttpResponse::BadRequest().body("No image file found in request payload")
+    }
+}
 
 #[derive(Deserialize, Clone)]
 struct CreatePostRequest {
@@ -22,7 +62,6 @@ struct CreatePostRequest {
     content: Content,
     status: PostStatus,
     tags: Vec<String>,
-    read_time: Option<u32>
 }
 
 async fn create_post( post_req: web::Json<CreatePostRequest>, db: web::Data<Database>)->impl Responder {
