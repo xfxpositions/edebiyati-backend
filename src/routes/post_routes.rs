@@ -356,5 +356,9 @@ pub fn post_routes(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/post/search")
             .route(web::get().to(search))
+    )
+    .service(
+        web::resource("/post/upload_image")
+            .route(web::post().to(upload_image))
     );
 }
