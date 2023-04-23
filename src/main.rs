@@ -43,8 +43,16 @@ async fn main() -> std::io::Result<()> {
     }
     fn jwt_middleware(headers:HeaderMap){
         println!("hello from jwt_middleware");
+
          let auth_header = headers.get("authorization");
          println!("auth Header: , {:?}", auth_header);
+
+        // for header in headers.iter(){
+        //     println!("Header: , {:?}", header);
+        // }
+        // let auth_header = headers.get("authorization");
+        // println!("auth Header: , {:?}", auth_header);
+
 
         
     }
