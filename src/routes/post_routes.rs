@@ -3,16 +3,14 @@ use std::{str::FromStr, io::Write, collections::HashMap};
 use actix_web::{web::{self}, HttpResponse, Responder};
 use actix_multipart::Multipart;
 
-use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId}, options::{FindOneAndUpdateOptions, ReturnDocument, FindOptions}, Collection};
+use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId, Regex}, options::{FindOneAndUpdateOptions, ReturnDocument, FindOptions}, Collection};
 use serde::Deserialize;
 use serde_json::json;
-use sha256::digest;
 
 use crate::{types::Post, utils::upload_image_to_s3, types::Content, types::{PostStatus, Comment}, types::Tag, types::{DEFAULT_POST_IMAGE, User}};
-use crate::utils::sign_jwt;
+
 use crate::utils::calculate_reading_time;
 use futures::{StreamExt, TryStreamExt};
-use uuid::Uuid;
 
 
 
@@ -126,12 +124,46 @@ async fn fetch_post_by_id(Post_id: web::Path<String>, db: web::Data<Database>) -
     }
 }
 
-async fn fetch_all(page: web::Path<i32>, db: web::Data<Database>) -> impl Responder {
+#[derive(Debug, Deserialize)]
+struct SearchParams {
+    title: Option<String>,
+    author: Option<String>,
+    content: Option<String>,
+    date: Option<i64>,
+}
+
+
+async fn fetch_all(params: web::Query<SearchParams>,page: web::Path<i32>, db: web::Data<Database>) -> impl Responder {
+    
+    let mut query = doc! {};
+
+    if let Some(title) = &params.title {
+        let regex_str = format!(".*{}.*", title);
+        query.insert("title", doc! { "$regex": regex_str, "$options": "i" });
+    }
+
+    if let Some(content) = &params.content {
+        let regex_str = format!(".*{}.*", content);
+
+        query.insert("content.html", doc! { "$regex": regex_str, "$options": "i" });
+    }
+
+    if let Some(author) = &params.author {
+        query.insert("author", author);
+    }
+
+    if let Some(date) = &params.date {
+        query.insert("created_at", *date);
+        query.insert("updated_at", *date);
+    }
+
+    println!("query {:?}",query);
+
     // Define the number of documents to skip and the number of documents to return
     let page_size = 5;
 
     let collection = db.collection::<Post>("posts");
-    let allah = collection.find(doc! {}, None).await.unwrap();
+    let allah = collection.find(query, None).await.unwrap();
     let skip_size = (page.into_inner() - 1) * page_size;
     let posts: Vec<Post> = allah
         .skip((skip_size as u64).try_into().unwrap())
@@ -225,6 +257,42 @@ async fn add_comment(Post_id: web::Path<String>, comment_data: web::Json<AddComm
 
 }
 
+
+
+async fn search(params: web::Query<SearchParams>, db: web::Data<Database>) -> HttpResponse {
+    let collection = db.collection::<Post>("posts");
+
+    // Build the search query based on the search parameters
+    let mut query = doc! {};
+    if let Some(title) = &params.title {
+        query.insert("title", title);
+    }
+    if let Some(author) = &params.author {
+        query.insert("author", author);
+    }
+    if let Some(content) = &params.content {
+        query.insert("content", content);
+    }
+    if let Some(date) = &params.date {
+        query.insert("date", *date);
+    }
+
+    let mut cursor = collection.find(query, None).await.unwrap();
+    
+    let posts: Vec<Post> = cursor
+    .filter_map(|result| async {
+        match result {
+            Ok(post) => Some(post),
+            Err(_) => None,
+        }
+    })
+    .collect().await;
+
+    HttpResponse::Ok().json(posts)
+
+
+}
+
 pub fn post_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::resource("/post/create")
@@ -245,5 +313,9 @@ pub fn post_routes(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/post/fetchall/{page}")
             .route(web::get().to(fetch_all))
+    )
+    .service(
+        web::resource("/post/search")
+            .route(web::get().to(search))
     );
 }
