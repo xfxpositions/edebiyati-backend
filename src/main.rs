@@ -43,15 +43,16 @@ async fn main() -> std::io::Result<()> {
     }
     fn jwt_middleware(headers:HeaderMap){
         println!("hello from jwt_middleware");
-        // for header in headers.iter(){
-        //     println!("Header: , {:?}", header);
-        // }
-        // let auth_header = headers.get("authorization");
-        // println!("auth Header: , {:?}", auth_header);
+         let auth_header = headers.get("authorization");
+         println!("auth Header: , {:?}", auth_header);
 
         
     }
+    fn authorization(permission:types::Permission){
+        
+    }
     HttpServer::new(move || {
+       
         let cors = Cors::default()
         .allow_any_origin()
         .allow_any_method()

@@ -3,7 +3,7 @@ use std::{str::FromStr, io::Write, collections::HashMap};
 use actix_web::{web::{self}, HttpResponse, Responder};
 use actix_multipart::Multipart;
 
-use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId}, options::{FindOneAndUpdateOptions, ReturnDocument}, Collection};
+use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId}, options::{FindOneAndUpdateOptions, ReturnDocument, FindOptions}, Collection};
 use serde::Deserialize;
 use serde_json::json;
 use sha256::digest;
@@ -13,6 +13,7 @@ use crate::utils::sign_jwt;
 use crate::utils::calculate_reading_time;
 use futures::{StreamExt, TryStreamExt};
 use uuid::Uuid;
+
 
 
 #[derive(Deserialize, Clone)]
@@ -125,6 +126,26 @@ async fn fetch_post_by_id(Post_id: web::Path<String>, db: web::Data<Database>) -
     }
 }
 
+async fn fetch_all(page: web::Path<i32>, db: web::Data<Database>) -> impl Responder {
+    // Define the number of documents to skip and the number of documents to return
+    let page_size = 5;
+
+    let collection = db.collection::<Post>("posts");
+    let allah = collection.find(doc! {}, None).await.unwrap();
+    let skip_size = (page.into_inner() - 1) * page_size;
+    let posts: Vec<Post> = allah
+        .skip((skip_size as u64).try_into().unwrap())
+        .take((page_size as u64).try_into().unwrap())
+        .filter_map(|result| async {
+            match result {
+                Ok(post) => Some(post),
+                Err(_) => None,
+            }
+        })
+        .collect().await;
+
+    HttpResponse::Ok().json(posts)
+}
 
 async fn update_post(
     Post_id: web::Path<String>,
@@ -220,5 +241,9 @@ pub fn post_routes(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/post/addcomment/{id}")
             .route(web::post().to(add_comment))
+    )
+    .service(
+        web::resource("/post/fetchall/{page}")
+            .route(web::get().to(fetch_all))
     );
 }

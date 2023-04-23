@@ -13,6 +13,7 @@ chrono = { version = "0.4.24", features = ["serde"] }
 crypto = { version = "0.4.0", features = ["digest"] }
 dotenv = "0.15.0"
 dotenv_codegen = "0.15.0"
+env_logger = "0.10.0"
 futures = "0.3.28"
 futures-util = "0.3.28"
 html2text = "0.5.1"
