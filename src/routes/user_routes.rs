@@ -1,12 +1,14 @@
-use std::{str::FromStr, io::Write, collections::HashMap};
+use std::{str::FromStr, io::Write, collections::HashMap, env};
 
-use actix_web::{web::{self}, HttpResponse, Responder, dev::{ServiceRequest, Service}, Resource};
+use actix_web::{web::{self}, HttpResponse, Responder, dev::{ServiceRequest, Service}, Resource, http::Error};
 use actix_multipart::Multipart;
+use reqwest::{Client, Url};
 
 use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId}, options::{FindOneAndUpdateOptions, ReturnDocument}, Collection};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha256::digest;
+use dotenv::dotenv;
 
 use crate::{types::User, utils::upload_image_to_s3};
 use crate::utils::sign_jwt;
@@ -322,6 +324,85 @@ async fn update_password(
 }
 
 
+#[derive(Deserialize)]
+struct GetGoogleUserRequest {
+    token:String
+}
+
+async fn get_google_user(
+    tokenData: web::Json<GetGoogleUserRequest>
+) -> impl Responder {
+    dotenv().ok();
+    async fn request_token(token_data:String)->Option<String>{
+        let redirect_url = env::var("GOOGLE_REDIRECT_URL").unwrap().to_owned();
+        let client_secret = env::var("GOOGLE_CLIENT_SECRET").unwrap().to_owned();
+        let client_id = env::var("GOOGLE_CLIENT_ID").unwrap().to_owned();
+    
+        let root_url = "https://oauth2.googleapis.com/token";
+        let client = Client::new();
+    
+        let params = [
+            ("grant_type", "authorization_code"),
+            ("redirect_uri", redirect_url.as_str()),
+            ("client_id", client_id.as_str()),
+            ("code", token_data.as_str()),
+            ("client_secret", client_secret.as_str()),
+        ];
+        let response = client.post(root_url).form(&params).send().await.unwrap();
+        #[derive(Debug,Serialize,Deserialize)]
+        struct Token{
+            access_token:String,
+            expires_in:u32,
+            refresh_token:String,
+            scope:String,
+            token_type:String,
+            id_token:String
+        }
+        if response.status().is_success() {
+            let oauth_response = response.text().await.unwrap();
+            let token:Token = serde_json::from_str(oauth_response.as_str()).unwrap();
+            println!("{}",oauth_response);
+            return Some(token.access_token)
+        } else {
+            let oauth_response = response.text().await.unwrap();
+            println!("BURADA HATA VAR ALOOO{}",oauth_response);
+            return None
+        }
+    }
+
+    let access_token = request_token(tokenData.token.clone()).await;
+    let client = Client::new();
+    let mut url = Url::parse("https://www.googleapis.com/oauth2/v1/userinfo").unwrap();
+    url.query_pairs_mut().append_pair("alt", "json");
+    url.query_pairs_mut()
+        .append_pair("access_token", access_token.clone().unwrap().as_str());
+
+    let response = client.get(url).bearer_auth(access_token.unwrap()).send().await;
+    match response  {
+        Ok(response)=>{
+            let usertext = response.text().await.unwrap();
+            println!("response {}",usertext.clone().to_string());
+            #[derive(Debug,Serialize, Deserialize)]
+            struct UserData{
+                id:String,
+                email:String,
+                verified_email:bool,
+                name:String,
+                given_name:String,
+                picture:String,
+                locale:String
+            }
+            let user:UserData = serde_json::from_str(&usertext).unwrap();
+            HttpResponse::Ok().json(user)
+        }
+        Err(err)=>{
+            println!("err:{:?}",err);
+            return HttpResponse::Unauthorized().json(json!({"error":err.to_string()}));
+        }
+    }
+    
+}
+
 
 pub fn user_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -351,5 +432,9 @@ pub fn user_routes(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/user/updatepassword/{id}")
             .route(web::post().to(update_password))
+    )
+    .service(
+        web::resource("/user/getgoogleuser")
+            .route(web::post().to(get_google_user))
     );
 }

@@ -58,7 +58,7 @@ async fn upload_image(mut payload: Multipart) -> impl Responder {
 struct CreatePostRequest {
     title: String,
     author: String,
-    image: Option<String>,
+    image: String,
     content: Content,
     status: PostStatus,
     tags: Vec<String>,
@@ -103,10 +103,9 @@ async fn create_post( post_req: web::Json<CreatePostRequest>, db: web::Data<Data
 
 
     let mut post = post_req.clone();
-    let image = post.image.take().unwrap_or(DEFAULT_POST_IMAGE.to_string());
     let content_html = &post.content.html;
     let reading_time =  calculate_reading_time(&content_html);
-    let new_post = Post::new(post.title, post.author, post.image, post.content, post.status, post.tags, reading_time as u32 );
+    let new_post = Post::new(post.title, post.author, post.image, post.content, post.status, post.tags, reading_time as u32);
     let post_doc = bson::to_document(&new_post).unwrap();
     println!("POST DOC!, {}",post_doc);
     let result = db.collection("posts").insert_one(post_doc, None).await;

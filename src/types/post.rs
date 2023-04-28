@@ -74,14 +74,14 @@ pub struct Post{
     pub read_time: u32 // in minutes, for example => 5 = 5 Minutes 
 }
 impl Post{
-    pub fn new(title:String, author:String, image:Option<String>, content:Content, status:PostStatus, tags:Vec<String>, read_time:u32) -> Post{
+    pub fn new(title:String, author:String, image:String, content:Content, status:PostStatus, tags:Vec<String>, read_time:u32) -> Post{
         let now = Utc::now();
 
         Post{
             id: ObjectId::new(),
             title:title,
             author: author, // id of author
-            image: image.unwrap_or("https://hips.hearstapps.com/hmg-prod/images/cherry-blossom-facts-1578344148.jpg".to_string()),
+            image: image,
             read_time: read_time,
             content:content,
             likes:0,
