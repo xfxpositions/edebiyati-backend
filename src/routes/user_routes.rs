@@ -330,17 +330,17 @@ struct GetGoogleUserRequest {
 }
 
 async fn get_google_user(
-    tokenData: web::Json<GetGoogleUserRequest>
+    token_data: web::Json<GetGoogleUserRequest>
 ) -> impl Responder {
     dotenv().ok();
-    async fn request_token(token_data:String)->Option<String>{
-        let redirect_url = env::var("GOOGLE_REDIRECT_URL").unwrap().to_owned();
-        let client_secret = env::var("GOOGLE_CLIENT_SECRET").unwrap().to_owned();
-        let client_id = env::var("GOOGLE_CLIENT_ID").unwrap().to_owned();
-    
+    async fn request_token(token_data:String) -> Result<String, Box<dyn std::error::Error>> {
+        let redirect_url = env::var("GOOGLE_REDIRECT_URL")?;
+        let client_secret = env::var("GOOGLE_CLIENT_SECRET")?;
+        let client_id = env::var("GOOGLE_CLIENT_ID")?;
+
         let root_url = "https://oauth2.googleapis.com/token";
         let client = Client::new();
-    
+
         let params = [
             ("grant_type", "authorization_code"),
             ("redirect_uri", redirect_url.as_str()),
@@ -348,7 +348,8 @@ async fn get_google_user(
             ("code", token_data.as_str()),
             ("client_secret", client_secret.as_str()),
         ];
-        let response = client.post(root_url).form(&params).send().await.unwrap();
+        let response = client.post(root_url).form(&params).send().await?;
+
         #[derive(Debug,Serialize,Deserialize)]
         struct Token{
             access_token:String,
@@ -358,50 +359,64 @@ async fn get_google_user(
             token_type:String,
             id_token:String
         }
+
         if response.status().is_success() {
-            let oauth_response = response.text().await.unwrap();
-            let token:Token = serde_json::from_str(oauth_response.as_str()).unwrap();
+            let oauth_response = response.text().await?;
+            let token:Token = serde_json::from_str(oauth_response.as_str())?;
             println!("{}",oauth_response);
-            return Some(token.access_token)
+            Ok(token.access_token)
         } else {
-            let oauth_response = response.text().await.unwrap();
+            let oauth_response = response.text().await?;
             println!("BURADA HATA VAR ALOOO{}",oauth_response);
-            return None
+            Err(format!("Failed to get token: {}", oauth_response).into())
         }
     }
 
-    let access_token = request_token(tokenData.token.clone()).await;
+    let access_token = match request_token(token_data.token.clone()).await {
+        Ok(token) => token,
+        Err(err) => {
+            println!("Error: {}", err);
+            return HttpResponse::Unauthorized().json(json!({"error": err.to_string()}));
+        }
+    };
+
     let client = Client::new();
     let mut url = Url::parse("https://www.googleapis.com/oauth2/v1/userinfo").unwrap();
     url.query_pairs_mut().append_pair("alt", "json");
     url.query_pairs_mut()
-        .append_pair("access_token", access_token.clone().unwrap().as_str());
+        .append_pair("access_token", access_token.clone().as_str());
 
-    let response = client.get(url).bearer_auth(access_token.unwrap()).send().await;
-    match response  {
-        Ok(response)=>{
-            let usertext = response.text().await.unwrap();
-            println!("response {}",usertext.clone().to_string());
-            #[derive(Debug,Serialize, Deserialize)]
-            struct UserData{
-                id:String,
-                email:String,
-                verified_email:bool,
-                name:String,
-                given_name:String,
-                picture:String,
-                locale:String
-            }
-            let user:UserData = serde_json::from_str(&usertext).unwrap();
-            HttpResponse::Ok().json(user)
+    let response = match client.get(url).bearer_auth(access_token.clone()).send().await {
+        Ok(response) => response,
+        Err(err) => {
+            println!("Error: {}", err);
+            return HttpResponse::Unauthorized().json(json!({"error": err.to_string()}));
         }
-        Err(err)=>{
-            println!("err:{:?}",err);
-            return HttpResponse::Unauthorized().json(json!({"error":err.to_string()}));
+    };
+
+    match response.text().await {
+        Ok(usertext) => {
+            println!("response {}", usertext.clone().to_string());
+            #[derive(Debug, Serialize, Deserialize)]
+            struct UserData {
+                id: String,
+                email: String,
+                verified_email: bool,
+                name: String,
+                given_name: String,
+                picture: String,
+                locale: String
+            }
+            let user: UserData = serde_json::from_str(&usertext).unwrap();
+            HttpResponse::Ok().json(user)
+        },
+        Err(err) => {
+            println!("Error: {}", err);
+            HttpResponse::Unauthorized().json(json!({"error": err.to_string()}))
         }
     }
-    
 }
+
 
 
 pub fn user_routes(cfg: &mut web::ServiceConfig) {
