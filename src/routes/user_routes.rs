@@ -30,21 +30,35 @@ async fn print_headers_middleware<AppState>(
 #[derive(Deserialize)]
 struct CreateUserRequest {
     name: String,
-    password: String,
+    password: Option<String>,
     email: String,
     forgot_mail: Option<String>,
+    avatar: Option<String>,
+    registred_via: String
 }
 
 async fn create_user(user: web::Json<CreateUserRequest>, db: web::Data<Database>)->impl Responder {
+    let registred_via = user.registred_via.clone();
+    let password = user.password.clone();
+    if registred_via != "Google".to_string() && password.clone().is_none() {
+        return HttpResponse::BadRequest().json(json!({"error":"password must be"}))
+    }
     fn hash_password(password: String) -> String {
         let hashed_password = digest(password);
         hashed_password
     }
-    let new_user = User::new(
+
+    let mut user_password = None;
+    if(password.is_some()){
+        user_password = Some(hash_password(password.unwrap())); 
+    }
+    let mut new_user = User::new(
         user.name.clone(),
-        hash_password(user.password.clone()),
+        user_password,
         user.email.clone(),
         user.forgot_mail.clone(),
+        user.avatar.clone(),
+        user.registred_via.clone()
     );
 
     let user_doc = bson::to_document(&new_user).unwrap();
@@ -192,7 +206,7 @@ async fn login(request_user: web::Json<LoginRequest>, db: web::Data<Database>) -
                     hashed_password
                 }
                 let input_password_hash = hash_password(request_user.password.clone());
-                if input_password_hash == user.password {
+                if input_password_hash == user.password.unwrap() {
                     // Passwords match, return an OK  response
                     match sign_jwt(user.id.to_string().as_str()) {
                         Ok(token) => {
@@ -296,7 +310,7 @@ async fn update_password(
     match collection.find_one(doc! {"_id": id}, None).await {
         Ok(result) => {
             if let Some(user) = result {
-                if user.password == hash_password(password_data.old_password.clone()){
+                if user.password == Some(hash_password(password_data.old_password.clone())){
                     let new_password_encrypted = hash_password(password_data.new_password.clone());
                 
                     let update_doc = doc! {"$set": {"password" : new_password_encrypted }};
