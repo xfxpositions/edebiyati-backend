@@ -5,9 +5,9 @@ use actix_multipart::Multipart;
 use reqwest::{Client, Url};
 use reqwest::RequestBuilder;
 
-use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId}, options::{FindOneAndUpdateOptions, ReturnDocument}, Collection};
+use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId}, options::{FindOneAndUpdateOptions, ReturnDocument, FindOneOptions}, Collection};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use sha256::digest;
 use dotenv::dotenv;
 
@@ -107,8 +107,23 @@ async fn create_user(user: web::Json<CreateUserRequest>, db: web::Data<Database>
         Err(e) => HttpResponse::InternalServerError().body(format!("Error creating user: {}", e))
     }
 }
-async fn fetch_user_by_id(user_id: web::Path<String>, db: web::Data<Database>) -> impl Responder {
 
+#[derive(Debug, Deserialize)]
+struct FetchOptions {
+    fields: Option<Vec<String>>,
+}
+
+impl AsRef<FetchOptions> for FetchOptions {
+    fn as_ref(&self) -> &FetchOptions {
+        self
+    }
+}
+
+async fn fetch_user_by_id(
+    Post_id: web::Path<String>,
+    fetch_options: Option<web::Json<Option<FetchOptions>>>,
+    db: web::Data<Database>,
+) -> impl Responder {
     let collection = db.collection("users");
 
     fn is_valid_objectid(id: &str) -> bool {
@@ -119,30 +134,57 @@ async fn fetch_user_by_id(user_id: web::Path<String>, db: web::Data<Database>) -
         }
     }
 
-    if !is_valid_objectid(&user_id) {
-        return HttpResponse::BadRequest().json(json!({"error":"Invalid user ID"}));
+    if !is_valid_objectid(&Post_id) {
+        return HttpResponse::BadRequest().json(json!({"error":"Invalid User ID"}));
     }
 
+    let id = ObjectId::from_str(&Post_id).unwrap();
 
-    let id = ObjectId::from_str(&user_id).unwrap();    
-    match collection.find_one(doc! {"_id": id}, None).await {
+    let mut options = FindOneOptions::default();
+
+    // If the `fields` field is present in the JSON request body,
+    // create a projection document to fetch only the specified fields.
+    if fetch_options.is_some(){
+        if let Some(ref fetch_options) = *fetch_options.unwrap() {
+            if let Some(fields) = &fetch_options.as_ref().fields {
+                // Do something with fields
+                let mut projection = doc! {};
+            for field in fields {
+                projection.insert(field, 1);
+            }
+            options.projection = Some(projection);
+            }
+        }
+    }else {
+        // Set a default value for `options` when no request body is present
+            options = FindOneOptions::default();
+        // ...
+    }
+   
+
+    match collection.find_one(doc! {"_id": id}, options).await {
         Ok(result) => {
             if let Some(doc) = result {
-                // Deserialize the user document to a User struct
-                let user: User = from_document(doc).unwrap();
-                // Return the user as a JSON response
-                HttpResponse::Ok().json(user)
+                // Deserialize the Post document to a Post struct
+                let document: serde_json::Value  = from_document(doc).unwrap();
+                let user_json: Value = serde_json::to_value(document).unwrap();
+
+                // Return the Post as a JSON response
+                HttpResponse::Ok().json(user_json)
             } else {
                 // Return a 404 Not Found error as a JSON response
-                HttpResponse::NotFound().json(json!({"error":"user not found"}))
+                HttpResponse::NotFound().json(json!({"error":"User not found"}))
             }
         }
         Err(error) => {
             // Return an error message as a JSON response
-            HttpResponse::InternalServerError().json(format!("Failed to fetch user: {}", error))
+            HttpResponse::InternalServerError().json(format!("Failed to fetch User: {}", error))
         }
     }
 }
+
+
+
 
 async fn upload_avatar(user_id: web::Path<String>, db: web::Data<Database>, mut payload: Multipart) -> impl Responder {
 
@@ -565,7 +607,7 @@ pub fn user_routes(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/user/fetch/{id}")
             
-            .route(web::get().to(fetch_user_by_id))
+            .route(web::post().to(fetch_user_by_id))
     )
     .service(
         web::resource("/user/login")

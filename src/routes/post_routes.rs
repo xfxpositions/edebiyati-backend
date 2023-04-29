@@ -2,10 +2,10 @@ use std::{str::FromStr, io::Write, collections::HashMap};
 
 use actix_web::{web::{self}, HttpResponse, Responder};
 use actix_multipart::Multipart;
-
-use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId, Regex}, options::{FindOneAndUpdateOptions, ReturnDocument, FindOptions}, Collection};
+use std::collections::HashSet;
+use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId, Regex, Document, document}, options::{FindOneAndUpdateOptions, ReturnDocument, FindOptions, FindOneOptions}, Collection};
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::{types::Post, utils::upload_image_to_s3, types::Content, types::{PostStatus, Comment}, types::Tag, types::{DEFAULT_POST_IMAGE, User}};
@@ -124,8 +124,22 @@ async fn create_post( post_req: web::Json<CreatePostRequest>, db: web::Data<Data
         Err(e) => HttpResponse::InternalServerError().body(format!("Error creating post: {}", e))
     }
 }
-async fn fetch_post_by_id(Post_id: web::Path<String>, db: web::Data<Database>) -> impl Responder {
+#[derive(Debug, Deserialize)]
+struct FetchOptions {
+    fields: Option<Vec<String>>,
+}
 
+impl AsRef<FetchOptions> for FetchOptions {
+    fn as_ref(&self) -> &FetchOptions {
+        self
+    }
+}
+
+async fn fetch_post_by_id(
+    Post_id: web::Path<String>,
+    fetch_options: Option<web::Json<Option<FetchOptions>>>,
+    db: web::Data<Database>,
+) -> impl Responder {
     let collection = db.collection("posts");
 
     fn is_valid_objectid(id: &str) -> bool {
@@ -140,16 +154,39 @@ async fn fetch_post_by_id(Post_id: web::Path<String>, db: web::Data<Database>) -
         return HttpResponse::BadRequest().json(json!({"error":"Invalid Post ID"}));
     }
 
+    let id = ObjectId::from_str(&Post_id).unwrap();
 
-    let id = ObjectId::from_str(&Post_id).unwrap();    
-    match collection.find_one(doc! {"_id": id}, None).await {
+    let mut options = FindOneOptions::default();
+
+    // If the `fields` field is present in the JSON request body,
+    // create a projection document to fetch only the specified fields.
+    if fetch_options.is_some(){
+        if let Some(ref fetch_options) = *fetch_options.unwrap() {
+            if let Some(fields) = &fetch_options.as_ref().fields {
+                // Do something with fields
+                let mut projection = doc! {};
+            for field in fields {
+                projection.insert(field, 1);
+            }
+            options.projection = Some(projection);
+            }
+        }
+    }else {
+        // Set a default value for `options` when no request body is present
+            options = FindOneOptions::default();
+        // ...
+    }
+   
+
+    match collection.find_one(doc! {"_id": id}, options).await {
         Ok(result) => {
             if let Some(doc) = result {
                 // Deserialize the Post document to a Post struct
-                let Post: Post = from_document(doc).unwrap();
+                let document: serde_json::Value  = from_document(doc).unwrap();
+                let post_json: Value = serde_json::to_value(document).unwrap();
+
                 // Return the Post as a JSON response
-                
-                HttpResponse::Ok().json(Post)
+                HttpResponse::Ok().json(post_json)
             } else {
                 // Return a 404 Not Found error as a JSON response
                 HttpResponse::NotFound().json(json!({"error":"Post not found"}))
@@ -161,6 +198,7 @@ async fn fetch_post_by_id(Post_id: web::Path<String>, db: web::Data<Database>) -
         }
     }
 }
+
 
 #[derive(Debug, Deserialize)]
 struct SearchParams {
@@ -275,7 +313,7 @@ async fn add_comment(Post_id: web::Path<String>, comment_data: web::Json<AddComm
     if !is_valid_objectid(&Post_id) {
         return HttpResponse::BadRequest().json(json!({"error":"Invalid Post ID"}));
     }
-    if comment_data.content.clone().len() > 250 || comment_data.content.clone().len() <=1 {
+    if comment_data.content.clone().len() > 400 || comment_data.content.clone().len() <=1 {
         return HttpResponse::BadRequest().json(json!({"error":"comment content must be between 250 and 1 characters"}));
     }
     let post_id = ObjectId::from_str(&Post_id).unwrap();    
@@ -338,7 +376,7 @@ pub fn post_routes(cfg: &mut web::ServiceConfig) {
     )
     .service(
         web::resource("/post/fetch/{id}")
-            .route(web::get().to(fetch_post_by_id))
+            .route(web::post().to(fetch_post_by_id))
     )
     .service(
         web::resource("/post/update/{id}")
