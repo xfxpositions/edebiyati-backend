@@ -3,6 +3,7 @@ use std::{str::FromStr, io::Write, collections::HashMap, env};
 use actix_web::{web::{self}, HttpResponse, Responder, dev::{ServiceRequest, Service}, Resource, http::Error};
 use actix_multipart::Multipart;
 use reqwest::{Client, Url};
+use reqwest::RequestBuilder;
 
 use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId}, options::{FindOneAndUpdateOptions, ReturnDocument}, Collection};
 use serde::{Deserialize, Serialize};
@@ -25,7 +26,44 @@ async fn print_headers_middleware<AppState>(
     Ok(req)
 }
 
+async fn request_token(token_data:String) -> Result<String, Box<dyn std::error::Error>> {
+    let redirect_url = env::var("GOOGLE_REDIRECT_URL")?;
+    let client_secret = env::var("GOOGLE_CLIENT_SECRET")?;
+    let client_id = env::var("GOOGLE_CLIENT_ID")?;
 
+    let root_url = "https://oauth2.googleapis.com/token";
+    let client = Client::new();
+
+    let params = [
+        ("grant_type", "authorization_code"),
+        ("redirect_uri", redirect_url.as_str()),
+        ("client_id", client_id.as_str()),
+        ("code", token_data.as_str()),
+        ("client_secret", client_secret.as_str()),
+    ];
+    let response = client.post(root_url).form(&params).send().await?;
+
+    #[derive(Debug,Serialize,Deserialize)]
+    struct Token{
+        access_token:String,
+        expires_in:u32,
+        refresh_token:String,
+        scope:String,
+        token_type:String,
+        id_token:String
+    }
+
+    if response.status().is_success() {
+        let oauth_response = response.text().await?;
+        let token:Token = serde_json::from_str(oauth_response.as_str())?;
+        println!("{}",oauth_response);
+        Ok(token.access_token)
+    } else {
+        let oauth_response = response.text().await?;
+        println!("BURADA HATA VAR ALOOO{}",oauth_response);
+        Err(format!("Failed to get token: {}", oauth_response).into())
+    }
+}
 
 #[derive(Deserialize)]
 struct CreateUserRequest {
@@ -200,28 +238,63 @@ async fn login(request_user: web::Json<LoginRequest>, db: web::Data<Database>) -
             if let Some(doc) = result {
                 // Deserialize the user document to a User struct
                 let user: User = from_document(doc).unwrap();
-                // Check if the input password matches the stored password hash
-                fn hash_password(password: String) -> String {
-                    let hashed_password = digest(password);
-                    hashed_password
+                //check user code if login with google
+                async fn send_request(token: &str) -> Result<reqwest::Response, reqwest::Error> {
+                    let client = Client::new();
+                    let url = "http://localhost:8080/user/getgoogleuser";
+                    let payload = json!({
+                        "token": token
+                    });
+
+                    let response = client.post(url).json(&payload).send().await?;
+                    Ok(response)
                 }
-                let input_password_hash = hash_password(request_user.password.clone());
-                if input_password_hash == user.password.unwrap() {
-                    // Passwords match, return an OK  response
-                    match sign_jwt(user.id.to_string().as_str()) {
-                        Ok(token) => {
-                            // Passwords match, return an OK response with the JWT token and user object
-                            HttpResponse::Ok().json(json!({"token":token}))
-                        },
-                        Err(e) => {
-                            // Failed to sign JWT token, return a 500 Internal Server Error
-                            HttpResponse::InternalServerError().json(json!({"server_error":e.to_string()}))
+                if(user.registred_via == "Google"){
+                   let result = send_request(&request_user.password).await;
+                    match result{
+                        Ok(response)=>{
+                            println!("response google login {}", response.text().await.unwrap());
+                            match sign_jwt(user.id.to_string().as_str()) {
+                                Ok(token) => {
+                                    // Passwords match, return an OK response with the JWT token and user object
+                                    return HttpResponse::Ok().json(json!({"token":token}))
+                                },
+                                Err(e) => {
+                                    // Failed to sign JWT token, return a 500 Internal Server Error
+                                    return HttpResponse::InternalServerError().json(json!({"server_error":e.to_string()}))
+                                }
+                            }
+                        }
+                        Err(e)=>{
+                            println!("response google login ERROR {}",e.to_string());
+                            HttpResponse::NotFound().json(json!({"error on login":e.to_string()}))
                         }
                     }
-                } else {
-                    // Passwords don't match, return a 401 Unauthorized error as a JSON response
-                    HttpResponse::Unauthorized().json(json!({"message":"Invalid password"}))
                 }
+                else{
+                    fn hash_password(password: String) -> String {
+                        let hashed_password = digest(password);
+                        hashed_password
+                    }
+                    let input_password_hash = hash_password(request_user.password.clone());
+                    if input_password_hash == user.password.unwrap() {
+                        // Passwords match, return an OK  response
+                        match sign_jwt(user.id.to_string().as_str()) {
+                            Ok(token) => {
+                                // Passwords match, return an OK response with the JWT token and user object
+                                HttpResponse::Ok().json(json!({"token":token}))
+                            },
+                            Err(e) => {
+                                // Failed to sign JWT token, return a 500 Internal Server Error
+                                HttpResponse::InternalServerError().json(json!({"server_error":e.to_string()}))
+                            }
+                        }
+                    } else {
+                        // Passwords don't match, return a 401 Unauthorized error as a JSON response
+                        HttpResponse::Unauthorized().json(json!({"message":"Invalid password"}))
+                    }
+                }
+                // Check if the input password matches the stored password hash
             } else {
                 // User not found, return a 404 Not Found error as a JSON response
                 HttpResponse::NotFound().json(json!({"message":"User not found"}))
@@ -233,6 +306,91 @@ async fn login(request_user: web::Json<LoginRequest>, db: web::Data<Database>) -
         }
     }
 }
+
+
+#[derive(Deserialize)]
+struct LoginGoogleRequest {
+    code:String
+}
+
+async fn login_google(request_data: web::Json<LoginGoogleRequest>, db: web::Data<Database>) -> impl Responder {
+    let token = request_data.code.clone();
+    let collection = db.collection("users");
+   
+    async fn send_request(token: &str) -> Result<reqwest::Response, reqwest::Error> {
+        let client = Client::new();
+        let url = "http://localhost:8080/user/getgoogleuser";
+        let payload = json!({
+            "token": token
+        });
+
+        let response = client.post(url).json(&payload).send().await?;
+        Ok(response)
+    }
+    
+       let result = send_request(&token).await;
+        match result{
+            Ok(response)=>{
+                #[derive(Debug, Serialize, Deserialize)]
+            struct UserData {
+                id: String,
+                email: String,
+                verified_email: bool,
+                name: String,
+                given_name: String,
+                picture: String,
+                locale: String
+            }
+                let user = response.json::<UserData>().await.unwrap();
+                println!("response google login {:?}", user);
+                let filter = doc! {
+                    "$or": [
+                        {"email": &user.email}
+                    ]
+                };
+                match collection.find_one(filter, None).await {
+                    Ok(result) => {
+                        if let Some(doc) = result {
+                            // Deserialize the user document to a User struct
+                            let user: User = from_document(doc).unwrap();
+                            //check user code if login with google
+                                    // Passwords match, return an OK  response
+                                    match sign_jwt(user.id.to_string().as_str()) {
+                                        Ok(token) => {
+                                            // Passwords match, return an OK response with the JWT token and user object
+                                            HttpResponse::Ok().json(json!({"token":token}))
+                                        },
+                                        Err(e) => {
+                                            // Failed to sign JWT token, return a 500 Internal Server Error
+                                            HttpResponse::InternalServerError().json(json!({"server_error":e.to_string()}))
+                                        }
+                                    }
+                                
+                            // Check if the input password matches the stored password hash
+                        } else {
+                            // User not found, return a 404 Not Found error as a JSON response
+                            HttpResponse::NotFound().json(json!({"message":"User not found"}))
+                        }
+                    }
+                    Err(error) => {
+                        // Return an error message as a JSON response
+                        HttpResponse::InternalServerError().json(json!({"message":format!("Failed to fetch user: {}", error)}))
+                    }
+                }
+                
+            }
+            Err(e)=>{
+                println!("response google login ERROR {}",e.to_string());
+                HttpResponse::BadRequest().json(json!({"error":e.to_string()}))
+            }
+        
+    }
+    
+    
+}
+
+
+
 
 async fn update_user(
     user_id: web::Path<String>,
@@ -347,44 +505,7 @@ async fn get_google_user(
     token_data: web::Json<GetGoogleUserRequest>
 ) -> impl Responder {
     dotenv().ok();
-    async fn request_token(token_data:String) -> Result<String, Box<dyn std::error::Error>> {
-        let redirect_url = env::var("GOOGLE_REDIRECT_URL")?;
-        let client_secret = env::var("GOOGLE_CLIENT_SECRET")?;
-        let client_id = env::var("GOOGLE_CLIENT_ID")?;
-
-        let root_url = "https://oauth2.googleapis.com/token";
-        let client = Client::new();
-
-        let params = [
-            ("grant_type", "authorization_code"),
-            ("redirect_uri", redirect_url.as_str()),
-            ("client_id", client_id.as_str()),
-            ("code", token_data.as_str()),
-            ("client_secret", client_secret.as_str()),
-        ];
-        let response = client.post(root_url).form(&params).send().await?;
-
-        #[derive(Debug,Serialize,Deserialize)]
-        struct Token{
-            access_token:String,
-            expires_in:u32,
-            refresh_token:String,
-            scope:String,
-            token_type:String,
-            id_token:String
-        }
-
-        if response.status().is_success() {
-            let oauth_response = response.text().await?;
-            let token:Token = serde_json::from_str(oauth_response.as_str())?;
-            println!("{}",oauth_response);
-            Ok(token.access_token)
-        } else {
-            let oauth_response = response.text().await?;
-            println!("BURADA HATA VAR ALOOO{}",oauth_response);
-            Err(format!("Failed to get token: {}", oauth_response).into())
-        }
-    }
+    
 
     let access_token = match request_token(token_data.token.clone()).await {
         Ok(token) => token,
@@ -449,6 +570,10 @@ pub fn user_routes(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/user/login")
             .route(web::post().to(login))
+    )
+    .service(
+        web::resource("/user/logingoogle")
+            .route(web::post().to(login_google))
     )
     .service(
         web::resource("/user/changeavatar/{id}")
