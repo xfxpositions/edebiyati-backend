@@ -11,7 +11,7 @@ pub struct User{
     #[serde(rename = "_id", default)]
     pub id: ObjectId,
     pub name: String,
-    pub password: String,
+    pub password: Option<String>,
     pub email: String,
     pub forgot_mail: Option<String>,
     pub permission: Permission,
@@ -36,7 +36,7 @@ impl User {
     pub fn from_document(doc: Document) -> Result<Self, mongodb::bson::de::Error> {
         bson::from_document(doc)
     }
-    pub fn new(name: String, password: String, email: String, forgot_mail: Option<String>) -> Self {
+    pub fn new(name: String, password: Option<String>, email: String, forgot_mail: Option<String>, avatar: Option<String>, registered_via: String) -> Self {
         let now = Utc::now();
         User {
             id: ObjectId::new(),
@@ -48,8 +48,8 @@ impl User {
             posts: vec![],
             created_at: now,
             updated_at: now,
-            registred_via: String::new(),
-            avatar: None,
+            registred_via: registered_via,
+            avatar: avatar,
             view_list: vec![],
             likes: vec![],
             dislikes: vec![],

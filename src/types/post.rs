@@ -71,7 +71,8 @@ pub struct Post{
     pub views:u32,
     pub status:PostStatus,
     pub tags: Vec<String>,
-    pub read_time: u32 // in minutes, for example => 5 = 5 Minutes 
+    pub read_time: u32, // in minutes, for example => 5 = 5 Minutes 
+    pub comments: Vec<Comment> 
 }
 impl Post{
     pub fn new(title:String, author:String, image:String, content:Content, status:PostStatus, tags:Vec<String>, read_time:u32) -> Post{
@@ -90,7 +91,8 @@ impl Post{
             status:status,
             tags:tags,
             updated_at: now,
-            created_at: now
+            created_at: now,
+            comments: vec![]
         }
     }
 }
