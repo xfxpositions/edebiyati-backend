@@ -2,11 +2,9 @@ use serde::{Deserialize, Serialize};
 use mongodb::bson::oid::ObjectId;
 use mongodb::bson::{self, Document};
 use super::Tag;
-use super::permissions::Permission;
 use chrono::serde::ts_seconds::deserialize as from_ts;
 use chrono::{DateTime, Utc};
 use std::time::Duration;
-use scraper::{Html, Selector};
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -17,19 +15,25 @@ pub struct Content{
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Comment{
-    author_id:String, //anon or user.id
-    content:String, //max 250 characters
-    id: String,
+    pub author_id:String, //anon or user.id
+    pub content:String, //max 250 characters
+    pub id: String,
+    pub likes: Vec<String>, //user.id
+    pub replies: Vec<Comment>
 }
 
+
+
 impl Comment{
-    pub fn new(mut author_name:Option<String>, content:String)->Comment{
+    pub fn new(author_name:Option<String>, content:String)->Comment{
         let mut name = author_name.unwrap_or("anon".to_string()); 
         let id = Uuid::new_v4();
         Comment{
             author_id: name,
             content: content,
-            id: id.to_string()
+            id: id.to_string(),
+            likes:vec![],
+            replies:vec![]
         }
     }
 }
@@ -41,18 +45,6 @@ pub enum PostStatus{
    OnlyFriends,
    Deleted
 }
-// impl PostStatus{
-//     pub fn to_string(){
-//         match self{
-//             Self::Public => "public",
-//             Self::Private => "private",
-//             Self::OnlyFriends=> "friends",
-//             Self::Deleted => "deleted",
-
-//         };
-//     }
-// }
-    // Parse the HTML string
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Post{
@@ -66,8 +58,8 @@ pub struct Post{
     pub updated_at: DateTime<Utc>,
     pub image: String, //optional, url of image    
     pub content: Content,
-    pub likes: u32,
-    pub dislikes: u32,
+    pub likes: Vec<String>, //user.id
+    pub dislikes: Vec<String>, //user.id
     pub views:u32,
     pub status:PostStatus,
     pub tags: Vec<String>,
@@ -85,8 +77,8 @@ impl Post{
             image: image,
             read_time: read_time,
             content:content,
-            likes:0,
-            dislikes:0,
+            likes:vec![],
+            dislikes:vec![],
             views:0,
             status:status,
             tags:tags,

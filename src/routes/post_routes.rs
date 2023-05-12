@@ -3,8 +3,8 @@ use std::{str::FromStr, io::Write, collections::HashMap};
 use actix_web::{web::{self}, HttpResponse, Responder};
 use actix_multipart::Multipart;
 use std::collections::HashSet;
-use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId, Regex, Document, document}, options::{FindOneAndUpdateOptions, ReturnDocument, FindOptions, FindOneOptions}, Collection};
-use serde::Deserialize;
+use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId, Regex, Document, document, Bson}, options::{FindOneAndUpdateOptions, ReturnDocument, FindOptions, FindOneOptions}, Collection};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -137,7 +137,7 @@ impl AsRef<FetchOptions> for FetchOptions {
 
 async fn fetch_post_by_id(
     Post_id: web::Path<String>,
-    fetch_options: Option<web::Json<Option<FetchOptions>>>,
+    query: web::Query<HashMap<String, String>>,
     db: web::Data<Database>,
 ) -> impl Responder {
     let collection = db.collection("posts");
@@ -158,25 +158,16 @@ async fn fetch_post_by_id(
 
     let mut options = FindOneOptions::default();
 
-    // If the `fields` field is present in the JSON request body,
+    // If the `fields` field is present in the query string,
     // create a projection document to fetch only the specified fields.
-    if fetch_options.is_some(){
-        if let Some(ref fetch_options) = *fetch_options.unwrap() {
-            if let Some(fields) = &fetch_options.as_ref().fields {
-                // Do something with fields
-                let mut projection = doc! {};
-            for field in fields {
-                projection.insert(field, 1);
-            }
-            options.projection = Some(projection);
-            }
+    if let Some(fields) = query.get("fields") {
+        let field_vec: Vec<String> = fields.split(",").map(|s| s.to_owned()).collect();
+        let mut projection = doc! {};
+        for field in field_vec {
+            projection.insert(field, 1);
         }
-    }else {
-        // Set a default value for `options` when no request body is present
-            options = FindOneOptions::default();
-        // ...
+        options.projection = Some(projection);
     }
-   
 
     match collection.find_one(doc! {"_id": id}, options).await {
         Ok(result) => {
@@ -256,43 +247,77 @@ async fn fetch_all(params: web::Query<SearchParams>,page: web::Path<i32>, db: we
 }
 
 async fn update_post(
-    Post_id: web::Path<String>,
-    new_data: web::Json<HashMap<String, String>>,
-    db: web::Data<Database>
+    user_id: web::Path<String>,
+    new_data: web::Json<HashMap<String, Value>>,
+    db: web::Data<Database>,
 ) -> impl Responder {
-    let collection = db.collection::<Post>("Posts");
+    let collection = db.collection::<Post>("posts");
 
     fn is_valid_objectid(id: &str) -> bool {
-        if let Ok(_) = ObjectId::from_str(id) {
-            true
-        } else {
-            false
-        }
+        ObjectId::from_str(id).is_ok()
     }
 
-    if !is_valid_objectid(&Post_id) {
-        return HttpResponse::BadRequest().json(json!({"error":"Invalid Post ID"}));
+    if !is_valid_objectid(&user_id) {
+        return HttpResponse::BadRequest().json(json!({"error":"Invalid post ID"}));
     }
 
-    let id = ObjectId::from_str(&Post_id).unwrap();
+    let id = ObjectId::from_str(&user_id).unwrap();
 
     let mut update_fields = doc! {};
 
     for (key, value) in new_data.iter() {
-        update_fields.insert(key, value);
+        if key.contains('.') {
+            let mut parts = key.split('.').rev();
+            let last_key = parts.next().unwrap();
+    
+            // Check if the last key is an array element
+            if last_key.starts_with('[') && last_key.ends_with(']') {
+                let array_key = &last_key[1..last_key.len() - 1];
+                let mut array_doc = doc! {};
+                if let Ok(index) = array_key.parse::<usize>() {
+                    // If the array element is an integer index, use the $ positional operator
+                    let mut array_update = doc! {};
+                    array_update.insert("$", bson::to_bson(value).unwrap_or(Bson::Null));
+                    array_doc.insert(index.to_string(), array_update);
+                    let mut doc = doc! {};
+                    for part in parts {
+                        let mut new_doc = doc! {part: doc};
+                        doc = new_doc;
+                    }
+                    doc.insert(last_key.to_string(), array_doc);
+                    update_fields.insert(key.to_string(), doc);
+                } else {
+                    // If the array element is a string key, update the entire array element
+                    array_doc.insert(last_key.to_string(), bson::to_bson(value).unwrap_or(Bson::Null));
+                    let mut doc = doc! {};
+                    for part in parts {
+                        let mut new_doc = doc! {part: doc};
+                        doc = new_doc;
+                    }
+                    doc.insert(array_key.to_string(), array_doc);
+                    update_fields.insert(key.to_string(), doc);
+                }
+            } else {
+                // If the last key is not an array element, update the entire field
+                update_fields.insert(key.to_string(), bson::to_bson(value).unwrap_or(Bson::Null));
+            }
+        } else {
+            // If the key does not contain a dot, update the entire field
+            update_fields.insert(key.to_string(), bson::to_bson(value).unwrap_or(Bson::Null));
+        }
     }
-
+    
+    println!("update => {:?}",update_fields);
     let update_doc = doc! {"$set": update_fields};
-
-    let result = collection
-        .update_one(doc! {"_id": id}, update_doc, None)
-        .await;
+    let result = collection.update_one(doc! {"_id": id}, update_doc, None).await;
 
     match result {
-        Ok(Post) => HttpResponse::Ok().json(json!({"Post": Post})),
-        Err(e) => HttpResponse::InternalServerError().body(format!("Error creating Post: {}", e))
+        Ok(user) => HttpResponse::Ok().json(json!({"user": user})),
+        Err(e) => HttpResponse::InternalServerError().body(format!("Error updating post: {}", e)),
     }
 }
+
+
 
 
 #[derive(Deserialize, Clone)]
@@ -324,7 +349,7 @@ async fn add_comment(Post_id: web::Path<String>, comment_data: web::Json<AddComm
     let result = collection.update_one(filter, update, None).await;
     
     match result{
-        Ok(_)=>{HttpResponse::Ok().json(json!({"success":"comment added!"}))},
+        Ok(result)=>{HttpResponse::Ok().json(json!({"success":format!("{:?}",result)}))},
         Err(error) => {
             // Return an error message as a JSON response
             HttpResponse::InternalServerError().json(format!("Failed to fetch Post: {}", error))
@@ -333,7 +358,134 @@ async fn add_comment(Post_id: web::Path<String>, comment_data: web::Json<AddComm
 
 }
 
+async fn add_reply(
+    query: web::Query<HashMap<String, String>>,
+    post_id: web::Path<String>,
+    comment_data: web::Json<AddCommentRequest>,
+    db: web::Data<Database>,
+) -> impl Responder {
+    let collection = db.collection::<Post>("posts");
 
+    // Define a function to check if a given ID is a valid ObjectId
+    fn is_valid_objectid(id: &str) -> bool {
+        ObjectId::from_str(id).is_ok()
+    }
+
+    // Check if the post ID is a valid ObjectId
+    if !is_valid_objectid(&post_id) {
+        return HttpResponse::BadRequest().json(json!({"error": "Invalid Post ID"}));
+    }
+
+    // Check if the comment content is between 1 and 400 characters
+    if comment_data.content.len() <= 1 || comment_data.content.len() > 400 {
+        return HttpResponse::BadRequest().json(json!({"error": "Comment content must be between 1 and 400 characters"}));
+    }
+
+    let post_id = ObjectId::from_str(&post_id).unwrap();
+    let new_comment = Comment::new(comment_data.author_id.clone(), comment_data.content.clone());
+    let filter = doc! {"_id": post_id};
+    let post = collection.find_one(filter.clone(), None).await;
+
+    // Check if the post exists
+    let mut post = match post {
+        Ok(Some(post)) => post,
+        Ok(None) => return HttpResponse::NotFound().json(json!({"error": "Post not found"})),
+        Err(error) => return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to fetch Post: {}", error)})),
+    };
+
+    // Find the comment with matching ID in the comments vector
+    let comment_id = query.get("comment_id").unwrap();
+    let comment = post.comments.iter_mut().find(|c| c.id == comment_id.to_string());
+
+    // Check if the comment exists
+    let comment = match comment {
+        Some(comment) => comment,
+        None => return HttpResponse::NotFound().json(json!({"error": "Comment not found"})),
+    };
+
+    // Add the new comment as a reply to the existing comment
+    comment.replies.push(new_comment);
+
+    // Update the post in the database with the new comment
+    let doc = bson::to_document(&post).unwrap();
+    let update = doc! {"$set": {"comments": doc.get("comments").unwrap()}};
+    let result = collection.update_one(filter, update, None).await;
+
+    match result {
+        Ok(_) => HttpResponse::Ok().json(json!({"success": "Reply added!"})),
+        Err(error) => HttpResponse::InternalServerError().json(json!({"error": format!("Failed to update Post: {}", error)})),
+    }
+}
+
+
+#[derive(Deserialize, Clone)]
+struct AddLikeRequest{
+    user_id: String,
+}
+
+async fn add_like(
+    query: web::Query<HashMap<String, String>>,
+    post_id: web::Path<String>,
+    db: web::Data<Database>,
+) -> impl Responder {
+    let collection = db.collection::<Post>("posts");
+
+    // Define a function to check if a given ID is a valid ObjectId
+    fn is_valid_objectid(id: &str) -> bool {
+        ObjectId::from_str(id).is_ok()
+    }
+
+    // Check if the post ID is a valid ObjectId
+    if !is_valid_objectid(&post_id) {
+        return HttpResponse::BadRequest().json(json!({"error": "Invalid Post ID"}));
+    }
+
+   
+
+    let post_id = ObjectId::from_str(&post_id).unwrap();
+    //let new_comment = Comment::new(comment_data.author_id.clone(), comment_data.content.clone());
+
+    let filter = doc! {"_id": post_id};
+    let post = collection.find_one(filter.clone(), None).await;
+
+    // Check if the post exists
+    let mut post = match post {
+        Ok(Some(post)) => post,
+        Ok(None) => return HttpResponse::NotFound().json(json!({"error": "Post not found"})),
+        Err(error) => return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to fetch Post: {}", error)})),
+    };
+
+    // Find the comment with matching ID in the comments vector
+    let comment_id = query.get("comment_id").unwrap();
+    let user_id = query.get("user_id").unwrap();
+    let comment = post.comments.iter_mut().find(|c| c.id == comment_id.to_string());
+
+    // Check if the comment exists
+    let comment = match comment {
+        Some(comment) => comment,
+        None => return HttpResponse::NotFound().json(json!({"error": "Comment not found"})),
+    };
+
+    // Add the new comment as a reply to the existing comment
+    //comment.replies.push(new_comment);
+    let mut is_deleted = false;
+    if comment.likes.contains(&user_id.clone()){
+        comment.likes.retain(|id| id != user_id);
+        is_deleted = true;
+    } else {
+        comment.likes.push(user_id.clone());
+    }
+    
+    // Update the post in the database with the new comment
+    let doc = bson::to_document(&post).unwrap();
+    let update = doc! {"$set": {"comments": doc.get("comments").unwrap()}};
+    let result = collection.update_one(filter, update, None).await;
+
+    match result {
+        Ok(_) => HttpResponse::Ok().json(json!({"success": "Reply added!","isDeleted":is_deleted})),
+        Err(error) => HttpResponse::InternalServerError().json(json!({"error": format!("Failed to update Post: {}", error)})),
+    }
+}
 
 async fn search(params: web::Query<SearchParams>, db: web::Data<Database>) -> HttpResponse {
     let collection = db.collection::<Post>("posts");
@@ -376,7 +528,7 @@ pub fn post_routes(cfg: &mut web::ServiceConfig) {
     )
     .service(
         web::resource("/post/fetch/{id}")
-            .route(web::post().to(fetch_post_by_id))
+            .route(web::get().to(fetch_post_by_id))
     )
     .service(
         web::resource("/post/update/{id}")
@@ -385,6 +537,10 @@ pub fn post_routes(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/post/addcomment/{id}")
             .route(web::post().to(add_comment))
+    )
+    .service(
+        web::resource("/post/addreply/{id}")
+            .route(web::post().to(add_reply))
     )
     .service(
         web::resource("/post/fetchall/{page}")
@@ -397,5 +553,9 @@ pub fn post_routes(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/post/upload_image")
             .route(web::post().to(upload_image))
+    )
+    .service(
+        web::resource("/post/add_like/{id}")
+            .route(web::post().to(add_like))
     );
 }

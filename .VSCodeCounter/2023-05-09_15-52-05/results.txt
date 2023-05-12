@@ -1,0 +1,46 @@
+Date : 2023-05-09 15:52:05
+Directory : c:\Users\coolpc\Desktop\sunduzhoca-com-backend
+Total : 15 files,  1385 codes, 80 comments, 256 blanks, all 1721 lines
+
+Languages
++----------+------------+------------+------------+------------+------------+
+| language | files      | code       | comment    | blank      | total      |
++----------+------------+------------+------------+------------+------------+
+| Rust     |         14 |      1,353 |         79 |        252 |      1,684 |
+| TOML     |          1 |         32 |          1 |          4 |         37 |
++----------+------------+------------+------------+------------+------------+
+
+Directories
++------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                               | files      | code       | comment    | blank      | total      |
++------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                                  |         15 |      1,385 |         80 |        256 |      1,721 |
+| . (Files)                                                                          |          1 |         32 |          1 |          4 |         37 |
+| src                                                                                |         14 |      1,353 |         79 |        252 |      1,684 |
+| src (Files)                                                                        |          1 |         67 |          2 |         12 |         81 |
+| src\routes                                                                         |          3 |      1,007 |         65 |        195 |      1,267 |
+| src\types                                                                          |          6 |        203 |          0 |         25 |        228 |
+| src\utils                                                                          |          4 |         76 |         12 |         20 |        108 |
++------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++------------------------------------------------------------------------------------+----------+------------+------------+------------+------------+
+| filename                                                                           | language | code       | comment    | blank      | total      |
++------------------------------------------------------------------------------------+----------+------------+------------+------------+------------+
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\Cargo.toml                          | TOML     |         32 |          1 |          4 |         37 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\main.rs                         | Rust     |         67 |          2 |         12 |         81 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\routes\mod.rs                   | Rust     |          4 |          0 |          1 |          5 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\routes\post_routes.rs           | Rust     |        430 |         33 |         97 |        560 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\routes\user_routes.rs           | Rust     |        573 |         32 |         97 |        702 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\types\common.rs                 | Rust     |          9 |          0 |          1 |         10 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\types\mod.rs                    | Rust     |         15 |          0 |          5 |         20 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\types\permissions.rs            | Rust     |         18 |          0 |          1 |         19 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\types\post.rs                   | Rust     |         82 |          0 |          9 |         91 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\types\tag.rs                    | Rust     |         18 |          0 |          4 |         22 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\types\user.rs                   | Rust     |         61 |          0 |          5 |         66 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\utils\calculate_reading_time.rs | Rust     |          7 |          3 |          5 |         15 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\utils\jwt.rs                    | Rust     |         26 |          2 |          7 |         35 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\utils\mod.rs                    | Rust     |          6 |          0 |          1 |          7 |
+| c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\utils\s3.rs                     | Rust     |         37 |          7 |          7 |         51 |
+| Total                                                                              |          |      1,385 |         80 |        256 |      1,721 |
++------------------------------------------------------------------------------------+----------+------------+------------+------------+------------+
