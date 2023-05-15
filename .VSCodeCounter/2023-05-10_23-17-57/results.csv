@@ -1,0 +1,17 @@
+"filename", "language", "TOML", "Rust", "comment", "blank", "total"
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\Cargo.toml", "TOML", 32, 0, 1, 4, 37
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\main.rs", "Rust", 0, 67, 2, 12, 81
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\routes\mod.rs", "Rust", 0, 4, 0, 1, 5
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\routes\post_routes.rs", "Rust", 0, 430, 33, 97, 560
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\routes\user_routes.rs", "Rust", 0, 589, 33, 102, 724
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\types\common.rs", "Rust", 0, 9, 0, 1, 10
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\types\mod.rs", "Rust", 0, 15, 0, 5, 20
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\types\permissions.rs", "Rust", 0, 18, 0, 1, 19
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\types\post.rs", "Rust", 0, 82, 0, 9, 91
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\types\tag.rs", "Rust", 0, 18, 0, 4, 22
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\types\user.rs", "Rust", 0, 61, 0, 5, 66
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\utils\calculate_reading_time.rs", "Rust", 0, 7, 3, 5, 15
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\utils\jwt.rs", "Rust", 0, 26, 2, 7, 35
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\utils\mod.rs", "Rust", 0, 6, 0, 1, 7
+"c:\Users\coolpc\Desktop\sunduzhoca-com-backend\src\utils\s3.rs", "Rust", 0, 37, 7, 7, 51
+"Total", "-", 32, 1369, 81, 261, 1743

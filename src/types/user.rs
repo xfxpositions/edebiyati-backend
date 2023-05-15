@@ -7,6 +7,12 @@ use chrono::serde::ts_seconds::deserialize as from_ts;
 use chrono::{DateTime, Utc};
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct Bookmark{
+    name:String,
+    posts:Vec<String> // post.id
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct User{ 
     #[serde(rename = "_id", default)]
     pub id: ObjectId,

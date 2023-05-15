@@ -5,7 +5,7 @@ use actix_multipart::Multipart;
 use reqwest::{Client, Url};
 use reqwest::RequestBuilder;
 
-use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId}, options::{FindOneAndUpdateOptions, ReturnDocument, FindOneOptions}, Collection};
+use mongodb::{Database, bson::{self, doc, from_document, oid::ObjectId, Bson}, options::{FindOneAndUpdateOptions, ReturnDocument, FindOneOptions, FindOptions}, Collection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha256::digest;
@@ -28,6 +28,7 @@ async fn print_headers_middleware<AppState>(
 
 async fn request_token(token_data:String) -> Result<String, Box<dyn std::error::Error>> {
     let redirect_url = env::var("GOOGLE_REDIRECT_URL")?;
+    println!("redirect uri => {}", redirect_url);
     let client_secret = env::var("GOOGLE_CLIENT_SECRET")?;
     let client_id = env::var("GOOGLE_CLIENT_ID")?;
 
@@ -121,7 +122,7 @@ impl AsRef<FetchOptions> for FetchOptions {
 
 async fn fetch_user_by_id(
     Post_id: web::Path<String>,
-    fetch_options: Option<web::Json<Option<FetchOptions>>>,
+    query: web::Query<HashMap<String, String>>,
     db: web::Data<Database>,
 ) -> impl Responder {
     let collection = db.collection("users");
@@ -142,23 +143,15 @@ async fn fetch_user_by_id(
 
     let mut options = FindOneOptions::default();
 
-    // If the `fields` field is present in the JSON request body,
+   // If the `fields` field is present in the query string,
     // create a projection document to fetch only the specified fields.
-    if fetch_options.is_some(){
-        if let Some(ref fetch_options) = *fetch_options.unwrap() {
-            if let Some(fields) = &fetch_options.as_ref().fields {
-                // Do something with fields
-                let mut projection = doc! {};
-            for field in fields {
-                projection.insert(field, 1);
-            }
-            options.projection = Some(projection);
-            }
+    if let Some(fields) = query.get("fields") {
+        let field_vec: Vec<String> = fields.split(",").map(|s| s.to_owned()).collect();
+        let mut projection = doc! {};
+        for field in field_vec {
+            projection.insert(field, 1);
         }
-    }else {
-        // Set a default value for `options` when no request body is present
-            options = FindOneOptions::default();
-        // ...
+        options.projection = Some(projection);
     }
    
 
@@ -433,20 +426,15 @@ async fn login_google(request_data: web::Json<LoginGoogleRequest>, db: web::Data
 
 
 
-
 async fn update_user(
     user_id: web::Path<String>,
     new_data: web::Json<HashMap<String, String>>,
-    db: web::Data<Database>
+    db: web::Data<Database>,
 ) -> impl Responder {
     let collection = db.collection::<User>("users");
 
     fn is_valid_objectid(id: &str) -> bool {
-        if let Ok(_) = ObjectId::from_str(id) {
-            true
-        } else {
-            false
-        }
+        ObjectId::from_str(id).is_ok()
     }
 
     if !is_valid_objectid(&user_id) {
@@ -458,18 +446,26 @@ async fn update_user(
     let mut update_fields = doc! {};
 
     for (key, value) in new_data.iter() {
-        update_fields.insert(key, value);
+        if key.contains('.') {
+            let mut parts = key.split('.').rev();
+            let last_key = parts.next().unwrap();
+            let mut doc = doc! {last_key: bson::to_bson(value).unwrap_or(Bson::Null)};
+            for part in parts {
+                let mut new_doc = doc! {part: doc};
+                doc = new_doc;
+            }
+            update_fields.insert(key.to_string(), doc);
+        } else {
+            update_fields.insert(key.to_string(), bson::to_bson(value).unwrap_or(Bson::Null));
+        }
     }
-
+    println!("update => {:?}",update_fields);
     let update_doc = doc! {"$set": update_fields};
-
-    let result = collection
-        .update_one(doc! {"_id": id}, update_doc, None)
-        .await;
+    let result = collection.update_one(doc! {"_id": id}, update_doc, None).await;
 
     match result {
         Ok(user) => HttpResponse::Ok().json(json!({"user": user})),
-        Err(e) => HttpResponse::InternalServerError().body(format!("Error creating user: {}", e))
+        Err(e) => HttpResponse::InternalServerError().body(format!("Error creating user: {}", e)),
     }
 }
 
@@ -594,20 +590,102 @@ async fn get_google_user(
     }
 }
 
+#[derive(Deserialize, Clone)]
+struct AddCommentRequest{
+    post_id: String
+}
+
+async fn add_favorite(User_id: web::Path<String>, request_data: web::Json<AddCommentRequest>, db: web::Data<Database>) -> impl Responder {
+
+    let collection = db.collection::<User>("users");
+
+    fn is_valid_objectid(id: &str) -> bool {
+        if let Ok(_) = ObjectId::from_str(id) {
+            true
+        } else {
+            false
+        }
+    }
+
+    if !is_valid_objectid(&User_id) {
+        return HttpResponse::BadRequest().json(json!({"error":"Invalid User ID"}));
+    }
+    
+    let user_id = ObjectId::from_str(&User_id).unwrap();
+    let filter = doc! {"_id": user_id};
+
+    let update_push = doc! {"$push": {"favorites": request_data.post_id.clone()}};
+    let update_pull = doc! {"$pull": {"favorites": request_data.post_id.clone()}};
+
+    let mut response = String::new();
+
+    match collection.find_one(filter.clone(), None).await {
+        Ok(Some(user)) => {
+            if user.favorites.contains(&request_data.post_id) {
+                // Post already exists in favorites, delete it
+                let result = collection.update_one(filter, update_pull, None).await;
+
+                match result{
+                    Ok(_) => {
+                        response = String::from("deleted");
+                    },
+                    Err(error) => {
+                        return HttpResponse::InternalServerError().json(format!("Failed to delete post: {}", error));
+                    }
+                }
+            } else {
+                // Post does not exist in favorites, add it
+                let result = collection.update_one(filter, update_push, None).await;
+
+                match result{
+                    Ok(_) => {
+                        response = String::from("comment added!");
+                    },
+                    Err(error) => {
+                        return HttpResponse::InternalServerError().json(format!("Failed to add comment: {}", error));
+                    }
+                }
+            }
+        },
+        Ok(None) => {
+            return HttpResponse::BadRequest().json(json!({"error":"User not found"}));
+        },
+        Err(error) => {
+            return HttpResponse::InternalServerError().json(format!("Failed to fetch user: {}", error));
+        }
+    }
+
+    HttpResponse::Ok().json(json!({"result": response}))
+}
+
+
+async fn get_user_by_name(
+    name: web::Path<String>,
+    db: web::Data<Database>
+) -> impl Responder{
+    // Search for user by name
+    let collection = db.collection::<User>("users");
+    let result = collection.find_one(doc! { "name": name.to_string() }, None).await.unwrap();
+
+    if(result.is_none()){
+        HttpResponse::NotFound().json(json!({"error":"user not found"}))
+    }else{
+        HttpResponse::Ok().json(result)
+    }
+}
+
 
 
 pub fn user_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::resource("/user/create")
 
-           
-
-            .route(web::post().to(create_user))
+    .route(web::post().to(create_user))
     )
     .service(
         web::resource("/user/fetch/{id}")
             
-            .route(web::post().to(fetch_user_by_id))
+            .route(web::get().to(fetch_user_by_id))
     )
     .service(
         web::resource("/user/login")
@@ -625,6 +703,7 @@ pub fn user_routes(cfg: &mut web::ServiceConfig) {
         web::resource("/user/update/{id}")
             .route(web::post().to(update_user))
     )
+    
     .service(
         web::resource("/user/updatepassword/{id}")
             .route(web::post().to(update_password))
@@ -632,5 +711,13 @@ pub fn user_routes(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/user/getgoogleuser")
             .route(web::post().to(get_google_user))
+    )
+    .service(
+        web::resource("/user/addbookmark/{id}")
+            .route(web::post().to(add_favorite))
+    )
+    .service(
+        web::resource("/user/getbyname/{name}")
+            .route(web::get().to(get_user_by_name))
     );
 }
